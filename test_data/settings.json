@@ -111,6 +111,7 @@
 
 	"merge_options":
 	{
-		"merge_data_to_gps": true
+		"merge_data_to_gps": true,
+		"merge_data_to_acc": false
 	}
 }
