@@ -1677,32 +1677,42 @@ def detect_trips(df, ts_name, dist_name, speed_name, fix_type_name, min_dist_per
     df2.count()
 
     ct = df2.filter(stop).count()
-
-    ct_ = 0
+    s = ct
+    s_ = -1
 
     df2 = df2.coalesce(num_partitions)
 
-    while (ct - ct_ != 0):
-        
-        ct_ = ct
+    def proc_trip(df, index, ts_name, min_dist_per_min, min_pause_duration, max_pause_time):
 
-        for index in ['i1','i2','i3']:
+        df2 = set_pause(df, index, ts_name).cache()
 
-            df2 = df2.cache()
+        df2 = check_case(df2, index, ts_name, min_dist_per_min, min_pause_duration, max_pause_time).cache()
+
+        df2 = proc_segment(df2, 'j1', ts_name, min_dist_per_min, min_pause_duration, max_pause_time, 3, 2,
+                           "CASE1").cache()
+        df2 = proc_segment(df2, 'j2', ts_name, min_dist_per_min, min_pause_duration, max_pause_time, 3, 3,
+                           "CASE2").cache()
+        df2 = proc_segment(df2, 'j3', ts_name, min_dist_per_min, min_pause_duration, max_pause_time, 0, 0,
+                           "CASE3").cache()
+        df2 = proc_segment(df2, 'j4', ts_name, min_dist_per_min, min_pause_duration, max_pause_time, 0, 0,
+                           "CASE4").cache()
+        df2 = df2.drop(*['j1', 'j2', 'j3', 'j4'])
+
+        return df2
+
+    for index in ['i1','i2','i3']:
+
+        while (s - s_ != 0):
+
+            s_ = s
+            ct_ = ct
+
+            df2 = proc_trip(df2, index, ts_name, min_dist_per_min, min_pause_duration, max_pause_time).cache()
             df2 = df2.checkpoint()
             df2.count()
 
-            df2 = set_pause(df2, index, ts_name).cache()
-    
-            df2 = check_case(df2, index, ts_name, min_dist_per_min, min_pause_duration, max_pause_time).cache()
-    
-            df2 = proc_segment(df2, 'j1', ts_name, min_dist_per_min, min_pause_duration, max_pause_time, 3, 2, "CASE1").cache()
-            df2 = proc_segment(df2, 'j2', ts_name, min_dist_per_min, min_pause_duration, max_pause_time, 3, 3, "CASE2").cache()
-            df2 = proc_segment(df2, 'j3', ts_name, min_dist_per_min, min_pause_duration, max_pause_time, 0, 0, "CASE3").cache()
-            df2 = proc_segment(df2, 'j4', ts_name, min_dist_per_min, min_pause_duration, max_pause_time, 0, 0, "CASE4").cache()
-            df2 = df2.drop(*['j1','j2','j3','j4'])
-
-        ct = df2.filter(stop).count()
+            ct = df2.filter(stop).count()
+            s = ct + ct_
 
     # 15. Sanity checks
     ## Redefine last fix as ENDPOINT and state as STATIONARY
