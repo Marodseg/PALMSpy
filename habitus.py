@@ -151,7 +151,7 @@ def main(gps_path, acc_path, config_file,
 
 	spark = SparkSession.builder.config(conf=conf).master("local[*]").appName("HABITUS").getOrCreate()
 	sc = spark.sparkContext
-	sc.setLogLevel("ERROR")
+	sc.setLogLevel("OFF")
 	sc.setCheckpointDir('checkpoints')
 	sc.getConf().getAll()
 
