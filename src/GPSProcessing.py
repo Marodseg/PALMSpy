@@ -56,11 +56,25 @@ def gen_gps_dataframe(df, ts_name, datetime_format):
     """
 
     def utc_to_local(utc_dt, lat, lon):
+        """
+        Calculate the difference between UTC time and local time (calculated by lon and lat)
+
+        :param utc_dt:
+            UTC datetime of a local zone
+        :param lat:
+            latitude from gps data to calculate a timezone
+        :param lon:
+            longitude from gps data to calculate a timezone
+        :return:
+            difference (in seconds) between UTC time and local time
+        """
         import pytz
         import timezonefinder
 
+        # Initialization of TimeZoneFinder (library)
         tf = timezonefinder.TimezoneFinder()
 
+        # Timezone from lat and long (e.g 'Europe/Madrid')
         timezone_str = tf.timezone_at(lat=lat, lng=lon)
 
         if timezone_str is None:
@@ -72,27 +86,47 @@ def gen_gps_dataframe(df, ts_name, datetime_format):
             return utcoff.total_seconds()
 
     def convert_speed(speed):
+        """
+        Replace a string of speed to delete 'km/h' (e.g '18km/h' converts into '18')
+        :param speed:
+            speed from gps data
+        :return:
+            speed without 'km/h'
+        """
         speed_ = str(speed).replace(' km/h', '')
 
         return speed_
 
     def convert_height(height):
+        """
+        Replace height to delete 'M' (e.g '18M' converts into '18)
+        :param height:
+            height from gps data
+        :return:
+            height without 'M'
+        """
         height_ = str(height).replace(' M', '')
 
         return height_
 
     def remove_space(col):
+        """
+        Remove spaces from a column (e.g '18 ' converts into '18')
+        :param col: column from gps data
+        :return: column data without spaces
+        """
         col_ = str(col).replace(' ', '')
 
         return col_
 
-    utc_to_local_fun = F.udf(utc_to_local)
-    convert_speed_fun = F.udf(convert_speed)
-    convert_height_fun = F.udf(convert_height)
-    remove_space_fun = F.udf(remove_space)
+    # Creation of user defined functions (UDF) for Pyspark
+    utc_to_local_fun = F.udf(utc_to_local) # utc_to_local function
+    convert_speed_fun = F.udf(convert_speed) # convert_speed function
+    convert_height_fun = F.udf(convert_height) # convert_height function
+    remove_space_fun = F.udf(remove_space) # remove_space function
 
-    ## convert column names to lowercase and remove spaces
-    ## rename the colums for the speed and the height
+    # Convert column names to lowercase and remove spaces
+    # Rename the colums for the speed and the height
     cols = df.columns
     cols = [c.lower() for c in cols]
     cols = [col.replace('(km/h)', '') for col in cols]
@@ -101,26 +135,34 @@ def gen_gps_dataframe(df, ts_name, datetime_format):
     cols = [col.replace('n_s', 'n/s') for col in cols]
     cols = [col.replace('e_w', 'e/w') for col in cols]
 
+    # Returns a new class:`DataFrame` (gps_data) with new specified column names
     gps_data = df.toDF(*cols)
     gps_data.cache()
 
-    ## drop duplicates
+    # Drop duplicates
     gps_data = gps_data.drop_duplicates()  # TODO: implement better this condition: avoid to drop valid points
 
+    # Header with the columns from the gps data
     header = gps_data.columns
 
-    ## rename third and fourth columns, which define date and time, respectively
+    # Rename third and fourth columns, which define date and time, respectively
+    #
+    # `withColumn` functionality:
+    #   Returns a new :class:`DataFrame` by adding a column or replacing the existing column that has the same name.
+    #   The column expression must be an expression over this DataFrame; attempting to add a column from some other dataframe will raise an error.
     gps_data = gps_data.withColumn("date", F.col(header[2]))
     gps_data = gps_data.drop(header[2])
     gps_data = gps_data.withColumn("time", F.col(header[3]))
     gps_data = gps_data.drop(header[3])
 
-    ## define latitude and longitude with sign and remove duplicated columns
+    # Define latitude and longitude column with sign and remove duplicated columns
+    # creating a consistent format for latitude and longitude column values
     gps_data = gps_data.withColumn('lat', F.when(remove_space_fun(F.col('n/s')) == 'S', F.abs(F.col('latitude')) * (-1)).otherwise(F.col('latitude'))).drop('latitude').drop('n/s')
 
     gps_data = gps_data.withColumn('lon', F.when(remove_space_fun(F.col('e/w')) == 'W', F.abs(F.col('longitude')) * (-1)).otherwise(F.col('longitude'))).drop('longitude').drop('e/w')
 
-    ## define timestamps
+    # Define timestamps column converting the ts_name (param from gen_gps_dataframe function) into timestamp with a column date and column time
+    # with the datetime_format coming from raw data
     gps_data = gps_data.withColumn(ts_name,
                                    F.to_timestamp(
                                        F.concat(
@@ -131,13 +173,13 @@ def gen_gps_dataframe(df, ts_name, datetime_format):
                                    )
                                    )
 
-    ## initialize the distance
+    # Initialize the distance with the value 0
     gps_data = gps_data.withColumn('distance', F.lit(0.0))
 
-    ## convert speeds  in units of km/h
+    # Convert speed column in units of km/h (double type)
     gps_data = gps_data.withColumn('speed', convert_speed_fun(F.col('speed')).cast(DoubleType()))
 
-    ## convert heights in units of meter
+    # Convert height column in units of meter (double type)
     gps_data = gps_data.withColumn('height', convert_height_fun(F.col('height')).cast(DoubleType()))
 
     ## calculate the offset with respect the UTC time
